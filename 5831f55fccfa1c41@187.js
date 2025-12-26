@@ -42,7 +42,7 @@ function _chart(d3,data)
     .join("circle")
       .attr("fill", d => {
         const topAncestor = d.ancestors().find(a => a.depth === 1) || d;
-        const base = d3.color(topLevelColor(topAncestor.data.name));
+        const base = d3.color(topLevelColor(topAncestor.data.name || "其他")) || d3.rgb("#4e79a7");
         const t = d.depth === 1 ? 0 : d.depth === 2 ? 0.35 : 0.6;
         return d3.interpolateLab(base, d3.rgb(255, 255, 255))(t);
       })
@@ -61,7 +61,7 @@ function _chart(d3,data)
     .join("text")
       .style("fill-opacity", d => d.parent === root ? 1 : 0)
       .style("display", d => d.parent === root ? "inline" : "none")
-      .text(d => `${d.data.name}${d.value ? `（${formatValue(d.value)}）` : ""}`);
+      .text(d => `${d.data.name}${Number.isFinite(d.value) ? `（${formatValue(d.value)}）` : ""}`);
 
   node.append("title")
     .text(d => `${d.ancestors().reverse().map(d => d.data.name).join(" / ")}\n${formatValue(d.value)} 十億元`);
@@ -132,15 +132,17 @@ async function _data(d3,FileAttachment){return(
         name: depcat,
         value: amount / 1e9
       }));
-      const depValue = d3.sum(catNodes, d => d.value);
-      return {name: depname, children: catNodes, value: depValue};
+      return {name: depname, children: catNodes};
     });
-    const topValue = d3.sum(depChildren, d => d.value);
-    return {name: topname, children: depChildren, value: topValue};
+    return {name: topname, children: depChildren};
   });
 
   return {name: "2019 預算", children};
 }
+)}
+
+function _d3(require){return(
+require("d3@7")
 )}
 
 export default function define(runtime, observer) {
@@ -151,6 +153,7 @@ export default function define(runtime, observer) {
   ]);
   main.builtin("FileAttachment", runtime.fileAttachments(name => fileAttachments.get(name)));
   main.variable(observer()).define(["md"], _1);
+  main.variable(observer("d3")).define("d3", ["require"], _d3);
   main.variable(observer("chart")).define("chart", ["d3","data"], _chart);
   main.variable(observer("data")).define("data", ["d3","FileAttachment"], _data);
   return main;
