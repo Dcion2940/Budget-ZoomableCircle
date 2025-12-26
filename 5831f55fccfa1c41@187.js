@@ -19,12 +19,17 @@ function _chart(d3,data)
       .range(["hsl(152,80%,80%)", "hsl(228,30%,40%)"])
       .interpolate(d3.interpolateHcl);
 
+  const valueToBillions = amount => {
+    const numericAmount = typeof amount === "string" ? +amount : amount;
+    return Number.isFinite(numericAmount) ? numericAmount / 1_000_000_000 : 0;
+  };
+
   // Compute the layout.
   const pack = data => d3.pack()
       .size([width, height])
       .padding(3)
     (d3.hierarchy(data)
-      .sum(d => d.value)
+      .sum(d => d.amount != null ? valueToBillions(d.amount) : (d.value ?? 0))
       .sort((a, b) => b.value - a.value));
   const root = pack(data);
 
@@ -98,19 +103,44 @@ function _chart(d3,data)
 }
 
 
-function _data(FileAttachment){return(
-FileAttachment("flare-2.json").json()
+function _data(FileAttachment,d3){return(
+FileAttachment("tw2019ap.csv").csv({typed: true}).then(rows => {
+  const hierarchy = Array.from(
+    d3.group(rows, d => d.topname, d => d.depname, d => d.depcat),
+    ([topname, depGroup]) => ({
+      name: topname,
+      children: Array.from(
+        depGroup,
+        ([depname, depcatGroup]) => ({
+          name: depname,
+          children: Array.from(
+            depcatGroup,
+            ([depcat, items]) => ({
+              name: depcat,
+              amount: d3.sum(items, d => {
+                const numeric = typeof d.amount === "string" ? +d.amount : d.amount;
+                return Number.isFinite(numeric) ? numeric : 0;
+              })
+            })
+          )
+        })
+      )
+    })
+  );
+
+  return {name: "預算", children: hierarchy};
+})
 )}
 
 export default function define(runtime, observer) {
   const main = runtime.module();
   function toString() { return this.url; }
   const fileAttachments = new Map([
-    ["flare-2.json", {url: new URL("./files/e65374209781891f37dea1e7a6e1c5e020a3009b8aedf113b4c80942018887a1176ad4945cf14444603ff91d3da371b3b0d72419fa8d2ee0f6e815732475d5de.json", import.meta.url), mimeType: "application/json", toString}]
+    ["tw2019ap.csv", {url: new URL("./files/tw2019ap.csv", import.meta.url), mimeType: "text/csv", toString}]
   ]);
   main.builtin("FileAttachment", runtime.fileAttachments(name => fileAttachments.get(name)));
   main.variable(observer()).define(["md"], _1);
   main.variable(observer("chart")).define("chart", ["d3","data"], _chart);
-  main.variable(observer("data")).define("data", ["FileAttachment"], _data);
+  main.variable(observer("data")).define("data", ["FileAttachment","d3"], _data);
   return main;
 }
