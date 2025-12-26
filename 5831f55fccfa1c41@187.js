@@ -19,12 +19,17 @@ function _chart(d3,data)
   const topLevelColor = d3.scaleOrdinal(d3.schemeTableau10);
   const backgroundColor = "#f5f7fb";
 
+  const valueToBillions = amount => {
+    const numericAmount = typeof amount === "string" ? +amount : amount;
+    return Number.isFinite(numericAmount) ? numericAmount / 1_000_000_000 : 0;
+  };
+
   // Compute the layout.
   const pack = data => d3.pack()
       .size([width, height])
       .padding(3)
     (d3.hierarchy(data)
-      .sum(d => d.value ?? 0)
+      .sum(d => d.amount != null ? valueToBillions(d.amount) : (d.value ?? 0))
       .sort((a, b) => b.value - a.value));
   const root = pack(data);
 
@@ -104,41 +109,33 @@ function _chart(d3,data)
 }
 
 
-async function _data(d3,FileAttachment){return(
-{
-  const rows = await FileAttachment("tw2019ap.csv").csv();
-  const filtered = rows
-    .filter(d => String(d.year ?? "") === "2019")
-    .map(d => ({...d, amount: +d.amount || 0}));
-
-  const byTop = d3.rollups(
-    filtered,
-    topGroup => d3.rollups(
-      topGroup,
-      depGroup => d3.rollups(
+function _data(FileAttachment,d3){return(
+FileAttachment("tw2019ap.csv").csv({typed: true}).then(rows => {
+  const hierarchy = Array.from(
+    d3.group(rows, d => d.topname, d => d.depname, d => d.depcat),
+    ([topname, depGroup]) => ({
+      name: topname,
+      children: Array.from(
         depGroup,
-        catGroup => d3.sum(catGroup, d => d.amount),
-        d => d.depcat
-      ),
-      d => d.depname
-    ),
-    d => d.topname
+        ([depname, depcatGroup]) => ({
+          name: depname,
+          children: Array.from(
+            depcatGroup,
+            ([depcat, items]) => ({
+              name: depcat,
+              amount: d3.sum(items, d => {
+                const numeric = typeof d.amount === "string" ? +d.amount : d.amount;
+                return Number.isFinite(numeric) ? numeric : 0;
+              })
+            })
+          )
+        })
+      )
+    })
   );
 
-  // byTop: [topname, [[depname, [[depcat, amount], ...]], ...]]
-  const children = byTop.map(([topname, depEntries]) => {
-    const depChildren = depEntries.map(([depname, catEntries]) => {
-      const catNodes = catEntries.map(([depcat, amount]) => ({
-        name: depcat,
-        value: amount / 1e9
-      }));
-      return {name: depname, children: catNodes};
-    });
-    return {name: topname, children: depChildren};
-  });
-
-  return {name: "2019 預算", children};
-}
+  return {name: "預算", children: hierarchy};
+})
 )}
 
 function _d3(require){return(
@@ -155,6 +152,6 @@ export default function define(runtime, observer) {
   main.variable(observer()).define(["md"], _1);
   main.variable(observer("d3")).define("d3", ["require"], _d3);
   main.variable(observer("chart")).define("chart", ["d3","data"], _chart);
-  main.variable(observer("data")).define("data", ["d3","FileAttachment"], _data);
+  main.variable(observer("data")).define("data", ["FileAttachment","d3"], _data);
   return main;
 }
