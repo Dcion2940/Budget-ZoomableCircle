@@ -3,6 +3,8 @@ md`<div style="color: grey; font: 13px/25.5px var(--sans-serif); text-transform:
 
 # Zoomable circle packing
 
+<div style="color: #555; font: 12px/18px var(--sans-serif); margin: 0 0 8px 0;">Unit: billions</div>
+
 Click to zoom in or out.`
 )}
 
@@ -98,19 +100,40 @@ function _chart(d3,data)
 }
 
 
-function _data(FileAttachment){return(
-FileAttachment("flare-2.json").json()
+function _data(FileAttachment,d3){return(
+FileAttachment("tw2019ap.csv").csv({typed: true})
+  .then(rows => rows.map(row => ({...row, amount: row.amount / 1e9})))
+  .then(rows => {
+    const rollup = d3.rollup(
+      rows,
+      values => d3.sum(values, d => d.amount),
+      d => d.cat,
+      d => d.topname,
+      d => d.depname,
+      d => d.depcat,
+      d => d.name
+    );
+
+    const buildHierarchy = (entry, name) => ({
+      name,
+      children: Array.from(entry, ([key, value]) =>
+        value instanceof Map ? buildHierarchy(value, key) : {name: key, value}
+      )
+    });
+
+    return buildHierarchy(rollup, "2019 Budget");
+  })
 )}
 
 export default function define(runtime, observer) {
   const main = runtime.module();
   function toString() { return this.url; }
   const fileAttachments = new Map([
-    ["flare-2.json", {url: new URL("./files/e65374209781891f37dea1e7a6e1c5e020a3009b8aedf113b4c80942018887a1176ad4945cf14444603ff91d3da371b3b0d72419fa8d2ee0f6e815732475d5de.json", import.meta.url), mimeType: "application/json", toString}]
+    ["tw2019ap.csv", {url: new URL("./files/tw2019ap.csv", import.meta.url), mimeType: "text/csv", toString}]
   ]);
   main.builtin("FileAttachment", runtime.fileAttachments(name => fileAttachments.get(name)));
   main.variable(observer()).define(["md"], _1);
   main.variable(observer("chart")).define("chart", ["d3","data"], _chart);
-  main.variable(observer("data")).define("data", ["FileAttachment"], _data);
+  main.variable(observer("data")).define("data", ["FileAttachment","d3"], _data);
   return main;
 }
