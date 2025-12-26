@@ -98,19 +98,67 @@ function _chart(d3,data)
 }
 
 
-function _data(FileAttachment){return(
-FileAttachment("flare-2.json").json()
+function _data(FileAttachment,buildBudgetTree){return(
+FileAttachment("tw2019ap.csv").csv({typed: true}).then(buildBudgetTree)
+)}
+
+function _buildBudgetTree(){return(
+function buildBudgetTree(rows) {
+  const root = {name: "2019 Budget", children: [], value: 0};
+
+  const ensureChild = (parent, name) => {
+    if (!parent.__childrenMap) parent.__childrenMap = new Map();
+    let child = parent.__childrenMap.get(name);
+    if (!child) {
+      child = {name, children: [], value: 0};
+      parent.__childrenMap.set(name, child);
+      parent.children.push(child);
+    }
+    return child;
+  };
+
+  const addAmount = (node, amount) => {
+    node.value = (node.value || 0) + amount;
+  };
+
+  for (const row of rows) {
+    const amount = Number(row.amount);
+    if (!Number.isFinite(amount)) continue;
+
+    const topNode = ensureChild(root, row.topname || "");
+    const depNode = ensureChild(topNode, row.depname || "");
+    const catNode = ensureChild(depNode, row.depcat || "");
+
+    addAmount(root, amount);
+    addAmount(topNode, amount);
+    addAmount(depNode, amount);
+    addAmount(catNode, amount);
+  }
+
+  const cleanup = (node) => {
+    if (node.__childrenMap) delete node.__childrenMap;
+    if (node.children && node.children.length) {
+      node.children.forEach(cleanup);
+    } else {
+      delete node.children;
+    }
+    return node;
+  };
+
+  return cleanup(root);
+}
 )}
 
 export default function define(runtime, observer) {
   const main = runtime.module();
   function toString() { return this.url; }
   const fileAttachments = new Map([
-    ["flare-2.json", {url: new URL("./files/e65374209781891f37dea1e7a6e1c5e020a3009b8aedf113b4c80942018887a1176ad4945cf14444603ff91d3da371b3b0d72419fa8d2ee0f6e815732475d5de.json", import.meta.url), mimeType: "application/json", toString}]
+    ["tw2019ap.csv", {url: new URL("./files/tw2019ap.csv", import.meta.url), mimeType: "text/csv", toString}]
   ]);
   main.builtin("FileAttachment", runtime.fileAttachments(name => fileAttachments.get(name)));
   main.variable(observer()).define(["md"], _1);
   main.variable(observer("chart")).define("chart", ["d3","data"], _chart);
-  main.variable(observer("data")).define("data", ["FileAttachment"], _data);
+  main.variable(observer("data")).define("data", ["FileAttachment","buildBudgetTree"], _data);
+  main.variable(observer("buildBudgetTree")).define("buildBudgetTree", _buildBudgetTree);
   return main;
 }
