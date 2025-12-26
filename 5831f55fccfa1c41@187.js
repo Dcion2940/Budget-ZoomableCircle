@@ -21,12 +21,17 @@ function _chart(d3,data)
       .range(["hsl(152,80%,80%)", "hsl(228,30%,40%)"])
       .interpolate(d3.interpolateHcl);
 
+  const valueToBillions = amount => {
+    const numericAmount = typeof amount === "string" ? +amount : amount;
+    return Number.isFinite(numericAmount) ? numericAmount / 1_000_000_000 : 0;
+  };
+
   // Compute the layout.
   const pack = data => d3.pack()
       .size([width, height])
       .padding(3)
     (d3.hierarchy(data)
-      .sum(d => d.value)
+      .sum(d => d.amount != null ? valueToBillions(d.amount) : (d.value ?? 0))
       .sort((a, b) => b.value - a.value));
   const root = pack(data);
 
