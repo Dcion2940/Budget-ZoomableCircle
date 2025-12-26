@@ -138,6 +138,10 @@ FileAttachment("tw2019ap.csv").csv({typed: true}).then(rows => {
 })
 )}
 
+function _d3(require){return(
+require("d3@7")
+)}
+
 export default function define(runtime, observer) {
   const main = runtime.module();
   function toString() { return this.url; }
