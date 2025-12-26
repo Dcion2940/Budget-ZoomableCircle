@@ -1,9 +1,9 @@
 function _1(md){return(
 md`<div style="color: grey; font: 13px/25.5px var(--sans-serif); text-transform: uppercase;"><h1 style="display: none;">Zoomable circle packing</h1><a href="https://d3js.org/">D3</a> › <a href="/@d3/gallery">Gallery</a></div>
 
-# Zoomable circle packing
+# 2019 Taiwan Budget (Circle Packing)
 
-<div style="color: #555; font: 12px/18px var(--sans-serif); margin: 0 0 8px 0;">Unit: billions</div>
+<div style="text-align: left; font: 12px/18px var(--sans-serif); margin-bottom: 8px;">單位：十億元</div>
 
 Click to zoom in or out.`
 )}
@@ -15,23 +15,16 @@ function _chart(d3,data)
   const width = 928;
   const height = width;
 
-  // Create the color scale.
-  const color = d3.scaleLinear()
-      .domain([0, 5])
-      .range(["hsl(152,80%,80%)", "hsl(228,30%,40%)"])
-      .interpolate(d3.interpolateHcl);
-
-  const valueToBillions = amount => {
-    const numericAmount = typeof amount === "string" ? +amount : amount;
-    return Number.isFinite(numericAmount) ? numericAmount / 1_000_000_000 : 0;
-  };
+  const formatValue = d3.format(",.2f");
+  const topLevelColor = d3.scaleOrdinal(d3.schemeTableau10);
+  const backgroundColor = "#f5f7fb";
 
   // Compute the layout.
   const pack = data => d3.pack()
       .size([width, height])
       .padding(3)
     (d3.hierarchy(data)
-      .sum(d => d.amount != null ? valueToBillions(d.amount) : (d.value ?? 0))
+      .sum(d => d.value ?? 0)
       .sort((a, b) => b.value - a.value));
   const root = pack(data);
 
@@ -40,14 +33,19 @@ function _chart(d3,data)
       .attr("viewBox", `-${width / 2} -${height / 2} ${width} ${height}`)
       .attr("width", width)
       .attr("height", height)
-      .attr("style", `max-width: 100%; height: auto; display: block; margin: 0 -14px; background: ${color(0)}; cursor: pointer;`);
+      .attr("style", `max-width: 100%; height: auto; display: block; margin: 0 -14px; background: ${backgroundColor}; cursor: pointer;`);
 
   // Append the nodes.
   const node = svg.append("g")
     .selectAll("circle")
     .data(root.descendants().slice(1))
     .join("circle")
-      .attr("fill", d => d.children ? color(d.depth) : "white")
+      .attr("fill", d => {
+        const topAncestor = d.ancestors().find(a => a.depth === 1) || d;
+        const base = d3.color(topLevelColor(topAncestor.data.name || "其他")) || d3.rgb("#4e79a7");
+        const t = d.depth === 1 ? 0 : d.depth === 2 ? 0.35 : 0.6;
+        return d3.interpolateLab(base, d3.rgb(255, 255, 255))(t);
+      })
       .attr("pointer-events", d => !d.children ? "none" : null)
       .on("mouseover", function() { d3.select(this).attr("stroke", "#000"); })
       .on("mouseout", function() { d3.select(this).attr("stroke", null); })
@@ -63,7 +61,10 @@ function _chart(d3,data)
     .join("text")
       .style("fill-opacity", d => d.parent === root ? 1 : 0)
       .style("display", d => d.parent === root ? "inline" : "none")
-      .text(d => d.data.name);
+      .text(d => `${d.data.name}${Number.isFinite(d.value) ? `（${formatValue(d.value)}）` : ""}`);
+
+  node.append("title")
+    .text(d => `${d.ancestors().reverse().map(d => d.data.name).join(" / ")}\n${formatValue(d.value)} 十億元`);
 
   // Create the zoom behavior and zoom immediately in to the initial focus node.
   svg.on("click", (event) => zoom(event, root));
@@ -82,8 +83,6 @@ function _chart(d3,data)
   }
 
   function zoom(event, d) {
-    const focus0 = focus;
-
     focus = d;
 
     const transition = svg.transition()
@@ -105,29 +104,45 @@ function _chart(d3,data)
 }
 
 
-function _data(FileAttachment,d3){return(
-FileAttachment("tw2019ap.csv").csv({typed: true})
-  .then(rows => rows.map(row => ({...row, amount: row.amount / 1e9})))
-  .then(rows => {
-    const rollup = d3.rollup(
-      rows,
-      values => d3.sum(values, d => d.amount),
-      d => d.cat,
-      d => d.topname,
-      d => d.depname,
-      d => d.depcat,
-      d => d.name
-    );
+async function _data(d3,FileAttachment){return(
+{
+  const rows = await FileAttachment("tw2019ap.csv").csv();
+  const filtered = rows
+    .filter(d => String(d.year ?? "") === "2019")
+    .map(d => ({...d, amount: +d.amount || 0}));
 
-    const buildHierarchy = (entry, name) => ({
-      name,
-      children: Array.from(entry, ([key, value]) =>
-        value instanceof Map ? buildHierarchy(value, key) : {name: key, value}
-      )
+  const byTop = d3.rollups(
+    filtered,
+    topGroup => d3.rollups(
+      topGroup,
+      depGroup => d3.rollups(
+        depGroup,
+        catGroup => d3.sum(catGroup, d => d.amount),
+        d => d.depcat
+      ),
+      d => d.depname
+    ),
+    d => d.topname
+  );
+
+  // byTop: [topname, [[depname, [[depcat, amount], ...]], ...]]
+  const children = byTop.map(([topname, depEntries]) => {
+    const depChildren = depEntries.map(([depname, catEntries]) => {
+      const catNodes = catEntries.map(([depcat, amount]) => ({
+        name: depcat,
+        value: amount / 1e9
+      }));
+      return {name: depname, children: catNodes};
     });
+    return {name: topname, children: depChildren};
+  });
 
-    return buildHierarchy(rollup, "2019 Budget");
-  })
+  return {name: "2019 預算", children};
+}
+)}
+
+function _d3(require){return(
+require("d3@7")
 )}
 
 export default function define(runtime, observer) {
@@ -138,7 +153,8 @@ export default function define(runtime, observer) {
   ]);
   main.builtin("FileAttachment", runtime.fileAttachments(name => fileAttachments.get(name)));
   main.variable(observer()).define(["md"], _1);
+  main.variable(observer("d3")).define("d3", ["require"], _d3);
   main.variable(observer("chart")).define("chart", ["d3","data"], _chart);
-  main.variable(observer("data")).define("data", ["FileAttachment","d3"], _data);
+  main.variable(observer("data")).define("data", ["d3","FileAttachment"], _data);
   return main;
 }
