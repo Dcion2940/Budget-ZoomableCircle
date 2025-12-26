@@ -3,6 +3,8 @@ md`<div style="color: grey; font: 13px/25.5px var(--sans-serif); text-transform:
 
 # Zoomable circle packing
 
+<div style="color: #555; font: 12px/18px var(--sans-serif); margin: 0 0 8px 0;">Unit: billions</div>
+
 Click to zoom in or out.`
 )}
 
@@ -98,55 +100,29 @@ function _chart(d3,data)
 }
 
 
-function _data(FileAttachment,buildBudgetTree){return(
-FileAttachment("tw2019ap.csv").csv({typed: true}).then(buildBudgetTree)
-)}
+function _data(FileAttachment,d3){return(
+FileAttachment("tw2019ap.csv").csv({typed: true})
+  .then(rows => rows.map(row => ({...row, amount: row.amount / 1e9})))
+  .then(rows => {
+    const rollup = d3.rollup(
+      rows,
+      values => d3.sum(values, d => d.amount),
+      d => d.cat,
+      d => d.topname,
+      d => d.depname,
+      d => d.depcat,
+      d => d.name
+    );
 
-function _buildBudgetTree(){return(
-function buildBudgetTree(rows) {
-  const root = {name: "2019 Budget", children: [], value: 0};
+    const buildHierarchy = (entry, name) => ({
+      name,
+      children: Array.from(entry, ([key, value]) =>
+        value instanceof Map ? buildHierarchy(value, key) : {name: key, value}
+      )
+    });
 
-  const ensureChild = (parent, name) => {
-    if (!parent.__childrenMap) parent.__childrenMap = new Map();
-    let child = parent.__childrenMap.get(name);
-    if (!child) {
-      child = {name, children: [], value: 0};
-      parent.__childrenMap.set(name, child);
-      parent.children.push(child);
-    }
-    return child;
-  };
-
-  const addAmount = (node, amount) => {
-    node.value = (node.value || 0) + amount;
-  };
-
-  for (const row of rows) {
-    const amount = Number(row.amount);
-    if (!Number.isFinite(amount)) continue;
-
-    const topNode = ensureChild(root, row.topname || "");
-    const depNode = ensureChild(topNode, row.depname || "");
-    const catNode = ensureChild(depNode, row.depcat || "");
-
-    addAmount(root, amount);
-    addAmount(topNode, amount);
-    addAmount(depNode, amount);
-    addAmount(catNode, amount);
-  }
-
-  const cleanup = (node) => {
-    if (node.__childrenMap) delete node.__childrenMap;
-    if (node.children && node.children.length) {
-      node.children.forEach(cleanup);
-    } else {
-      delete node.children;
-    }
-    return node;
-  };
-
-  return cleanup(root);
-}
+    return buildHierarchy(rollup, "2019 Budget");
+  })
 )}
 
 export default function define(runtime, observer) {
@@ -158,7 +134,6 @@ export default function define(runtime, observer) {
   main.builtin("FileAttachment", runtime.fileAttachments(name => fileAttachments.get(name)));
   main.variable(observer()).define(["md"], _1);
   main.variable(observer("chart")).define("chart", ["d3","data"], _chart);
-  main.variable(observer("data")).define("data", ["FileAttachment","buildBudgetTree"], _data);
-  main.variable(observer("buildBudgetTree")).define("buildBudgetTree", _buildBudgetTree);
+  main.variable(observer("data")).define("data", ["FileAttachment","d3"], _data);
   return main;
 }
